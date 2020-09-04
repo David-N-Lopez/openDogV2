@@ -1,17 +1,19 @@
 //ODrive
-#include <ODriveArduino.h>
+#include <ODriveArduino.h> // Library to control and receive feedback from the brushless motors
 //IMU stuff
-#include "I2Cdev.h"
-#include "MPU6050_6Axis_MotionApps20.h"
-#include "Wire.h"
+#include "I2Cdev.h" // Synchronous communication protocol between master and slaves (One main Microcontroller to the servant microcontrollers)
+#include "MPU6050_6Axis_MotionApps20.h" // Motion Sensor Library
+#include "Wire.h" // Required for communication with I2C devices.
 
 // Radio
-#include <SPI.h>
-#include <nRF24L01.h>
+#include <SPI.h> // Serial Peripheral interface protocol to communicate with remote controller
+#include <nRF24L01.h> //Transciever Library 2.4Ghz
 #include <RF24.h>
 
 // Pixel display - using Teensy 2812 lib
-#include <WS2812Serial.h>
+#include <WS2812Serial.h> // LED lib for teensy
+
+// Setting up constants teensy LED display
 const int numled = 8;
 const int pin = 29;
 byte drawingMemory[numled*3];         //  3 bytes per LED
@@ -26,7 +28,8 @@ WS2812Serial leds(numled, displayMemory, drawingMemory, pin, WS2812_GRB);
 #define WHITE  0x101010
 #define BLACK  0x000000
 
-RF24 radio(9, 10); // CE, CSN
+// setting SPI ibus pins
+RF24 radio(9, 10); // Chip Enable (9), Chip Select Pin (10)
 const byte addresses[][6] = {"00001", "00002"};
 
 // Printing with stream operator
@@ -40,6 +43,8 @@ template<>        inline Print& operator <<(Print &obj, float arg) { obj.print(a
 MPU6050 mpu;
 //MPU6050 mpu(0x69); // <-- use for AD0 high
 
+// The MPU has a Digital Motion Processor that combines gyro and accel data to reduce errors
+// DMP returns information as Quaternions that can be converted into Euler angles
 // MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
 uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
@@ -167,11 +172,11 @@ void setup() {
     Serial6.begin(115200);
 
     radio.begin();
-    radio.openWritingPipe(addresses[0]); // 00002
-    radio.openReadingPipe(1, addresses[1]); // 00001
-    radio.setPALevel(RF24_PA_MIN);
+    radio.openWritingPipe(addresses[0]); // writing Pipe set to addr: 00002 (Only one can be open)
+    radio.openReadingPipe(1, addresses[1]); // reading Pipe set to addr: 00001 (up to 6 can be open)
+    radio.setPALevel(RF24_PA_MIN); // setting radio power amplification to -18dBm (Decibel MilliWatts)
 
-    radio.startListening();
+    radio.startListening(); // begin listening through reading pipe 00001
     
 
     // IMU Setup
@@ -188,6 +193,7 @@ void setup() {
     devStatus = mpu.dmpInitialize();
   
     // supply your own gyro offsets here, scaled for min sensitivity
+    // For reference https://wired.chillibasket.com/2015/01/calibrating-mpu6050/
     mpu.setXGyroOffset(95);
     mpu.setYGyroOffset(5);
     mpu.setZGyroOffset(59);
@@ -201,10 +207,11 @@ void setup() {
         mpu.setDMPEnabled(true);
   
         // enable Arduino interrupt detection
-        attachInterrupt(33, dmpDataReady, RISING);
+        attachInterrupt(33, dmpDataReady, RISING); // Calling dmpDataReady (an Interrupt Service Routine) when the voltage changes from low to high
         mpuIntStatus = mpu.getIntStatus();
   
         // get expected DMP packet size for later comparison
+        // The DMP has a 1024 FIFO register that holds acc, gyro data and can be accessed by its serial ports
         packetSize = mpu.dmpGetFIFOPacketSize();
     } else {
         // ERROR!
@@ -225,7 +232,7 @@ void setup() {
 
 void loop() {  
       
-        currentMillis = millis();
+        currentMillis = millis(); // returns the time run since the start of the program
         if (currentMillis - previousMillis >= 10) {  // start timed event
           
             previousMillis = currentMillis;
@@ -254,6 +261,8 @@ void loop() {
 
             // threshold remote data
             // some are reversed based on stick wiring in remote
+            // should change depending on wiring
+            // TODO:
             RFB = (thresholdStick(mydata_remote.RFB))*-1;   
             RLR = thresholdStick(mydata_remote.RLR);
             RT = thresholdStick(mydata_remote.RT);   
@@ -298,6 +307,7 @@ void loop() {
             
 
             // mode select
+            // mode ranges from 0, 10
 
             if (mydata_remote.menuUp == 1 && menuFlag == 0) {           
               menuFlag = 1;
@@ -310,7 +320,7 @@ void loop() {
               mode = constrain(mode,0,10);
             }
             else if (mydata_remote.menuDown == 0 && mydata_remote.menuUp == 0){
-            menuFlag = 0;    
+              menuFlag = 0;    
             }
 
             binPixel(mode);     // use the function to display potential mode on the pixels
